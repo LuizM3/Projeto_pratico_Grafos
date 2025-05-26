@@ -1,382 +1,318 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <unordered_set>
-#include <set>
-#include <unordered_map>
-#include <queue>
+#include <string>
+#include <sstream>
 #include <algorithm>
-#include <iomanip>
+#include <chrono>
+#include <limits>
+#include <tuple>
+#include <numeric>
+#include <dirent.h>
+#include <sys/stat.h>
 
 using namespace std;
+const float INF = numeric_limits<float>::infinity();
 
-// Estruturas de dados
-struct Aresta {
+struct Servico {
+    string tipo;
+    int id;
     int origem;
     int destino;
-    int custo;
-    bool operator<(const Aresta& outra) const {
-        if (origem != outra.origem) return origem < outra.origem;
-        if (destino != outra.destino) return destino < outra.destino;
-        return custo < outra.custo;
-    }
-};
-
-struct Arco {
-    int origem;
-    int destino;
-    int custo;
-    bool operator<(const Arco& outro) const {
-        if (origem != outro.origem) return origem < outro.origem;
-        if (destino != outro.destino) return destino < outro.destino;
-        return custo < outro.custo;
-    }
-};
-
-struct VerticeRequerido {
-    int no;
     int demanda;
-    int custo_servico;
-    bool operator<(const VerticeRequerido& outro) const {
-        if (no != outro.no) return no < outro.no;
-        if (demanda != outro.demanda) return demanda < outro.demanda;
-        return custo_servico < outro.custo_servico;
-    }
+    float custo;
 };
 
-struct ArestaRequerida {
-    int origem;
-    int destino;
-    int custo;
-    int demanda;
-    int custo_servico;
-    bool operator<(const ArestaRequerida& outra) const {
-        if (origem != outra.origem) return origem < outra.origem;
-        if (destino != outra.destino) return destino < outra.destino;
-        if (custo != outra.custo) return custo < outra.custo;
-        if (demanda != outra.demanda) return demanda < outra.demanda;
-        return custo_servico < outra.custo_servico;
-    }
+struct DadosArquivo {
+    int capacidade;
+    int deposito;
+    int num_nos;
+    vector<vector<int>> nos;
+    vector<vector<int>> arestas;
+    vector<vector<int>> arcos;
 };
 
-struct ArcoRequerido {
-    int origem;
-    int destino;
-    int custo;
-    int demanda;
-    int custo_servico;
-    bool operator<(const ArcoRequerido& outro) const {
-        if (origem != outro.origem) return origem < outro.origem;
-        if (destino != outro.destino) return destino < outro.destino;
-        if (custo != outro.custo) return custo < outro.custo;
-        if (demanda != outro.demanda) return demanda < outro.demanda;
-        return custo_servico < outro.custo_servico;
-    }
-};
-
-struct DadosGrafo {
-    unordered_set<int> vertices;
-    set<Aresta> arestas;
-    set<Arco> arcos;
-    set<VerticeRequerido> vertices_requeridos;
-    set<ArestaRequerida> arestas_requeridas;
-    set<ArcoRequerido> arcos_requeridos;
-};
-
-// Funções auxiliares
-vector<string> dividir_string(const string &s, char delimitador) {
-    vector<string> partes;
-    string parte;
-    istringstream fluxo(s);
-    while (getline(fluxo, parte, delimitador)) {
-        partes.push_back(parte);
-    }
-    return partes;
+void criar_diretorio(const string& caminho) {
+    #ifdef _WIN32
+    _mkdir(caminho.c_str());
+    #else
+    mkdir(caminho.c_str(), 0777);
+    #endif
 }
 
-string trim(const string &s) {
-    size_t inicio = s.find_first_not_of(" \t\n\r");
-    size_t fim = s.find_last_not_of(" \t\n\r");
-    return (inicio == string::npos) ? "" : s.substr(inicio, fim - inicio + 1);
+vector<string> obter_arquivos_dat() {
+    vector<string> arquivos;
+    DIR *dir;
+    struct dirent *ent;
+    
+    if ((dir = opendir("arquivos")) != NULL) {
+        while ((ent = readdir(dir)) != NULL) {
+            string nome = ent->d_name;
+            if (nome.size() > 4 && 
+                nome.substr(nome.size() - 4) == ".dat") {
+                arquivos.push_back(nome);
+            }
+        }
+        closedir(dir);
+    }
+    sort(arquivos.begin(), arquivos.end());
+    return arquivos;
 }
 
-DadosGrafo ler_arquivo(const string& caminho_arquivo) {
-    DadosGrafo dados;
-    ifstream arquivo(caminho_arquivo);
+vector<int> extrair_numeros(const string& s) {
+    vector<int> numeros;
+    stringstream ss(s);
+    int num;
+    while (ss >> num) numeros.push_back(num);
+    return numeros;
+}
+
+pair<vector<vector<float>>, vector<vector<int>>> floyd_warshall(int num_nos, const vector<tuple<int, int, float>>& arcos) {
+    vector<vector<float>> dist(num_nos + 1, vector<float>(num_nos + 1, INF));
+    vector<vector<int>> pred(num_nos + 1, vector<int>(num_nos + 1, -1));
+
+    for (int i = 0; i <= num_nos; ++i) dist[i][i] = 0;
+
+    for (const auto& arco : arcos) {
+        int u = get<0>(arco);
+        int v = get<1>(arco);
+        float w = get<2>(arco);
+        dist[u][v] = w;
+        pred[u][v] = u;
+    }
+
+    for (int k = 0; k <= num_nos; ++k) {
+        for (int i = 0; i <= num_nos; ++i) {
+            for (int j = 0; j <= num_nos; ++j) {
+                if (dist[i][k] + dist[k][j] < dist[i][j]) {
+                    dist[i][j] = dist[i][k] + dist[k][j];
+                    pred[i][j] = pred[k][j];
+                }
+            }
+        }
+    }
+    return make_pair(dist, pred);
+}
+
+DadosArquivo ler_arquivo(const string& nome_arquivo) {
+    DadosArquivo dados;
+    ifstream arquivo("arquivos/" + nome_arquivo);
+    
+    if (!arquivo.is_open()) {
+        throw runtime_error("Erro ao abrir arquivo: arquivos/" + nome_arquivo);
+    }
+
     string linha;
-    string secao;
+    int secao = 0;
 
     while (getline(arquivo, linha)) {
-        linha = trim(linha);
         if (linha.empty()) continue;
 
-        if (linha.rfind("ReN.", 0) == 0) { secao = "ReN"; continue; }
-        if (linha.rfind("ReE.", 0) == 0) { secao = "ReE"; continue; }
-        if (linha.rfind("EDGE", 0) == 0) { secao = "EDGE"; continue; }
-        if (linha.rfind("ReA.", 0) == 0) { secao = "ReA"; continue; }
-        if (linha.rfind("ARC", 0) == 0) { secao = "ARC"; continue; }
-
-        vector<string> partes = dividir_string(linha, '\t');
-        try {
-            if (secao == "ReN" && partes.size() >= 3) {
-                string no_str = partes[0];
-                no_str.erase(remove(no_str.begin(), no_str.end(), 'N'), no_str.end());
-                int no = stoi(no_str);
-                dados.vertices_requeridos.insert({no, stoi(partes[1]), stoi(partes[2])});
-                dados.vertices.insert(no);
+        if (linha.find("Capacity:") != string::npos) {
+            vector<int> valores_cabecalho;
+            while (getline(arquivo, linha) && !linha.empty()) {
+                vector<int> nums = extrair_numeros(linha);
+                valores_cabecalho.insert(valores_cabecalho.end(), nums.begin(), nums.end());
             }
-            else if ((secao == "ReE" || secao == "EDGE") && partes.size() >= 4) {
-                int origem = stoi(partes[1]);
-                int destino = stoi(partes[2]);
-                dados.vertices.insert(origem);
-                dados.vertices.insert(destino);
-                Aresta e{min(origem, destino), max(origem, destino), stoi(partes[3])};
-                dados.arestas.insert(e);
-                
-                if (secao == "ReE" && partes.size() >= 6) {
-                    dados.arestas_requeridas.insert({e.origem, e.destino, e.custo, stoi(partes[4]), stoi(partes[5])});
+            if (valores_cabecalho.size() >= 9) {
+                dados.capacidade = valores_cabecalho[2];
+                dados.deposito = valores_cabecalho[3];
+                dados.num_nos = valores_cabecalho[4];
+            }
+            secao = 1;
+        }
+        else if (linha.find("ReN.") != string::npos) {
+            getline(arquivo, linha);
+            while (getline(arquivo, linha) && !linha.empty()) {
+                vector<int> nums = extrair_numeros(linha);
+                if (nums.size() >= 2) {
+                    dados.nos.push_back({nums[0], nums[1]});
                 }
             }
-            else if ((secao == "ReA" || secao == "ARC") && partes.size() >= 4) {
-                int origem = stoi(partes[1]);
-                int destino = stoi(partes[2]);
-                dados.vertices.insert(origem);
-                dados.vertices.insert(destino);
-                Arco a{origem, destino, stoi(partes[3])};
-                dados.arcos.insert(a);
-                
-                if (secao == "ReA" && partes.size() >= 6) {
-                    dados.arcos_requeridos.insert({a.origem, a.destino, a.custo, stoi(partes[4]), stoi(partes[5])});
+            secao = 2;
+        }
+        else if (linha.find("ReE.") != string::npos) {
+            getline(arquivo, linha);
+            while (getline(arquivo, linha) && !linha.empty()) {
+                vector<int> nums = extrair_numeros(linha);
+                if (nums.size() >= 5) {
+                    dados.arestas.push_back({nums[1], nums[2], nums[3], nums[4]});
                 }
             }
-        } catch (...) {}
+            secao = 3;
+        }
+        else if (linha.find("ReA.") != string::npos) {
+            getline(arquivo, linha);
+            while (getline(arquivo, linha) && !linha.empty()) {
+                vector<int> nums = extrair_numeros(linha);
+                if (nums.size() >= 5) {
+                    dados.arcos.push_back({nums[1], nums[2], nums[3], nums[4]});
+                }
+            }
+        }
     }
+
     return dados;
 }
 
-struct Grau {
-    int grau_arestas = 0;
-    int grau_entrada = 0;
-    int grau_saida = 0;
-};
-
-unordered_map<int, Grau> calcular_graus(const unordered_set<int>& vertices, const set<Aresta>& arestas, const set<Arco>& arcos) {
-    unordered_map<int, Grau> graus;
-    for (int v : vertices) graus[v];
+vector<Servico> criar_servicos(
+    const vector<vector<int>>& nos,
+    const vector<vector<int>>& arestas,
+    const vector<vector<int>>& arcos,
+    const vector<vector<float>>& dist,
+    int deposito) {
     
-    for (const Aresta& e : arestas) {
-        graus[e.origem].grau_arestas++;
-        graus[e.destino].grau_arestas++;
-    }
+    vector<Servico> servicos;
+    int id = 1;
     
-    for (const Arco& a : arcos) {
-        graus[a.destino].grau_entrada++;
-        graus[a.origem].grau_saida++;
-    }
+    for (const auto& n : nos) 
+        servicos.push_back({"no", id++, n[0], n[0], n[1], 0});
     
-    return graus;
+    for (const auto& e : arestas)
+        servicos.push_back({"aresta", id++, e[0], e[1], e[3], static_cast<float>(e[2])});
+    
+    for (const auto& a : arcos)
+        servicos.push_back({"arco", id++, a[0], a[1], a[3], static_cast<float>(a[2])});
+    
+    sort(servicos.begin(), servicos.end(), [&](const Servico& a, const Servico& b) {
+        return (dist[deposito][a.origem] + a.custo)/a.demanda < (dist[deposito][b.origem] + b.custo)/b.demanda;
+    });
+    
+    return servicos;
 }
 
-int contar_componentes_conectados(const DadosGrafo& dados) {
-    unordered_set<int> visitados;
-    int componentes = 0;
+vector<vector<Servico>> construir_rotas(vector<Servico> servicos, int capacidade, int deposito, const vector<vector<float>>& dist) {
+    vector<vector<Servico>> rotas;
     
-    for (int vertice : dados.vertices) {
-        if (visitados.find(vertice) == visitados.end()) {
-            componentes++;
-            queue<int> fila;
-            fila.push(vertice);
-            visitados.insert(vertice);
-            
-            while (!fila.empty()) {
-                int atual = fila.front();
-                fila.pop();
-                
-                for (const Aresta& e : dados.arestas) {
-                    if (e.origem == atual && visitados.find(e.destino) == visitados.end()) {
-                        visitados.insert(e.destino);
-                        fila.push(e.destino);
-                    }
-                    if (e.destino == atual && visitados.find(e.origem) == visitados.end()) {
-                        visitados.insert(e.origem);
-                        fila.push(e.origem);
-                    }
-                }
-                
-                for (const Arco& a : dados.arcos) {
-                    if (a.origem == atual && visitados.find(a.destino) == visitados.end()) {
-                        visitados.insert(a.destino);
-                        fila.push(a.destino);
-                    }
-                }
-            }
-        }
-    }
-    return componentes;
-}
-
-pair<unordered_map<int, double>, unordered_map<int, int>> calcular_caminhos_mais_curtos(int no_inicial, const set<Aresta>& arestas, const set<Arco>& arcos) {
-    unordered_map<int, double> distancias;
-    unordered_map<int, int> predecessores;
-    set<pair<double, int>> fila_prioridade;
-    
-    distancias[no_inicial] = 0;
-    fila_prioridade.insert({0, no_inicial});
-    
-    while (!fila_prioridade.empty()) {
-        int atual = fila_prioridade.begin()->second;
-        fila_prioridade.erase(fila_prioridade.begin());
+    while (!servicos.empty()) {
+        vector<Servico> rota;
+        int carga_atual = 0;
+        int no_atual = deposito;
         
-        for (const Aresta& e : arestas) {
-            int vizinho = -1;
-            if (e.origem == atual) vizinho = e.destino;
-            else if (e.destino == atual) vizinho = e.origem;
-            if (vizinho == -1) continue;
+        while (true) {
+            auto it = min_element(servicos.begin(), servicos.end(),
+                [&](const Servico& a, const Servico& b) {
+                    return dist[no_atual][a.origem] < dist[no_atual][b.origem];
+                });
             
-            double nova_dist = distancias[atual] + e.custo;
-            if (!distancias.count(vizinho) || nova_dist < distancias[vizinho]) {
-                distancias[vizinho] = nova_dist;
-                predecessores[vizinho] = atual;
-                fila_prioridade.insert({distancias[vizinho], vizinho});
-            }
+            if (it == servicos.end() || (carga_atual + it->demanda) > capacidade) break;
+            
+            rota.push_back(*it);
+            carga_atual += it->demanda;
+            no_atual = it->destino;
+            servicos.erase(it);
         }
         
-        for (const Arco& a : arcos) {
-            if (a.origem == atual) {
-                double nova_dist = distancias[atual] + a.custo;
-                if (!distancias.count(a.destino) || nova_dist < distancias[a.destino]) {
-                    distancias[a.destino] = nova_dist;
-                    predecessores[a.destino] = atual;
-                    fila_prioridade.insert({distancias[a.destino], a.destino});
-                }
-            }
+        if (!rota.empty()) rotas.push_back(rota);
+    }
+    
+    return rotas;
+}
+
+void salvar_solucao(const string& nome_arquivo, const vector<vector<Servico>>& rotas, 
+                  const vector<vector<float>>& dist, int deposito) {
+    criar_diretorio("G21");
+    ofstream saida("G21/sol-" + nome_arquivo);
+    
+    if (!saida.is_open()) {
+        throw runtime_error("Erro ao criar arquivo de saida: G21/sol-" + nome_arquivo);
+    }
+    
+    float custo_total = 0;
+    for (const auto& rota : rotas) {
+        float custo = 0;
+        int ultimo = deposito;
+        for (const auto& s : rota) {
+            custo += dist[ultimo][s.origem] + s.custo;
+            ultimo = s.destino;
         }
+        custo += dist[ultimo][deposito];
+        custo_total += custo;
     }
     
-    return {distancias, predecessores};
-}
-
-unordered_map<int, unordered_map<int, double>> criar_matriz_distancias(const unordered_set<int>& vertices, const set<Aresta>& arestas, const set<Arco>& arcos) {
-    unordered_map<int, unordered_map<int, double>> matriz;
-    for (int v : vertices) {
-        auto resultado = calcular_caminhos_mais_curtos(v, arestas, arcos);
-        matriz[v] = resultado.first;
-    }
-    return matriz;
-}
-
-unordered_map<int, unordered_map<int, int>> criar_matriz_predecessores(const unordered_set<int>& vertices, const set<Aresta>& arestas, const set<Arco>& arcos) {
-    unordered_map<int, unordered_map<int, int>> matriz;
-    for (int v : vertices) {
-        auto resultado = calcular_caminhos_mais_curtos(v, arestas, arcos);
-        matriz[v] = resultado.second;
-    }
-    return matriz;
-}
-
-vector<int> obter_caminho_mais_curto(const unordered_map<int, unordered_map<int, int>>& predecessores, int inicio, int fim) {
-    vector<int> caminho;
-    int atual = fim;
-    while (atual != -1) {
-        caminho.insert(caminho.begin(), atual);
-        auto it = predecessores.at(inicio).find(atual);
-        atual = (it != predecessores.at(inicio).end()) ? it->second : -1;
-    }
-    return caminho;
-}
-
-double calcular_diametro(const unordered_map<int, unordered_map<int, double>>& matriz) {
-    double diametro = 0;
-    for (const auto& linha : matriz) {
-        for (const auto& coluna : linha.second) {
-            if (coluna.second > diametro) diametro = coluna.second;
+    saida << custo_total << "\n" << rotas.size() << "\n0\n0\n";
+    
+    for (const auto& rota : rotas) {
+        saida << "0 1 " << &rota - &rotas[0] << " ";
+        int demanda = accumulate(rota.begin(), rota.end(), 0, 
+            [](int soma, const Servico& s) { return soma + s.demanda; });
+        
+        saida << demanda << " ";
+        float custo = 0;
+        int ultimo = deposito;
+        for (const auto& s : rota) {
+            custo += dist[ultimo][s.origem] + s.custo;
+            ultimo = s.destino;
         }
+        custo += dist[ultimo][deposito];
+        saida << custo << " " << rota.size() + 2 << " ";
+        
+        saida << "(D 0," << deposito << "," << deposito << ") ";
+        for (const auto& s : rota) 
+            saida << "(S " << s.id << "," << s.origem << "," << s.destino << ") ";
+        saida << "(D 0," << deposito << "," << deposito << ")\n";
     }
-    return diametro;
-}
-
-double calcular_media_caminhos(int num_vertices, const unordered_map<int, unordered_map<int, double>>& matriz) {
-    double total = 0;
-    int contagem = 0;
-    for (const auto& linha : matriz) {
-        for (const auto& coluna : linha.second) {
-            if (linha.first != coluna.first && coluna.second < numeric_limits<double>::infinity()) {
-                total += coluna.second;
-                contagem++;
-            }
-        }
-    }
-    return contagem > 0 ? total / contagem : 0;
-}
-
-unordered_map<int, int> calcular_intermediacao(const unordered_set<int>& vertices, const unordered_map<int, unordered_map<int, int>>& predecessores) {
-    unordered_map<int, int> intermediacao;
-    for (int u : vertices) {
-        for (int v : vertices) {
-            if (u != v) {
-                auto caminho = obter_caminho_mais_curto(predecessores, u, v);
-                for (size_t i = 1; i < caminho.size() - 1; i++) {
-                    intermediacao[caminho[i]]++;
-                }
-            }
-        }
-    }
-    return intermediacao;
-}
-
-void imprimir_metricas(const DadosGrafo& dados) {
-    auto graus = calcular_graus(dados.vertices, dados.arestas, dados.arcos);
-    
-    int grau_total_min = numeric_limits<int>::max();
-    int grau_total_max = 0;
-    
-    for (const auto& par : graus) {
-        const Grau& g = par.second;
-        int total = g.grau_arestas + g.grau_entrada + g.grau_saida;
-        grau_total_min = min(grau_total_min, total);
-        grau_total_max = max(grau_total_max, total);
-    }
-    
-    double max_arestas = (dados.vertices.size() * (dados.vertices.size() - 1)) / 2.0;
-    double max_arcos = dados.vertices.size() * (dados.vertices.size() - 1);
-    double densidade = (dados.arestas.size() + dados.arcos.size()) / (max_arestas + max_arcos);
-    
-    auto matriz_distancias = criar_matriz_distancias(dados.vertices, dados.arestas, dados.arcos);
-    auto matriz_predecessores = criar_matriz_predecessores(dados.vertices, dados.arestas, dados.arcos);
-    
-    double diametro = calcular_diametro(matriz_distancias);
-    double media_caminhos = calcular_media_caminhos(dados.vertices.size(), matriz_distancias);
-    
-    auto intermediacao = calcular_intermediacao(dados.vertices, matriz_predecessores);
-    int componentes = contar_componentes_conectados(dados);
-    
-    cout << fixed << setprecision(4);
-    cout << "1 - Quantidade de vértices: " << dados.vertices.size() << endl;
-    cout << "2 - Quantidade de arestas: " << dados.arestas.size() << endl;
-    cout << "3 - Quantidade de arcos: " << dados.arcos.size() << endl;
-    cout << "4 - Vértices requeridos: " << dados.vertices_requeridos.size() << endl;
-    cout << "5 - Arestas requeridas: " << dados.arestas_requeridas.size() << endl;
-    cout << "6 - Arcos requeridos: " << dados.arcos_requeridos.size() << endl;
-    cout << "7 - Densidade do grafo: " << densidade << endl;
-    cout << "8 - Componentes conectados: " << componentes << endl;
-    cout << "9 - Grau mínimo: " << grau_total_min << endl;
-    cout << "10 - Grau máximo: " << grau_total_max << endl;
-    cout << "11 - Intermediação de cada vértice:" << endl;
-    for (const auto& par : intermediacao) {
-        cout << "  Vértice " << par.first << ": " << par.second << endl;
-    }
-    cout << fixed << setprecision(2);
-    cout << "12 - Caminho médio: " << media_caminhos << endl;
-    cout << "13 - Diâmetro: " << diametro << endl;
 }
 
 int main() {
-    cout << "Digite o nome/caminho do arquivo .dat: ";
-    string caminho_arquivo;
-    getline(cin, caminho_arquivo);
-    
-    DadosGrafo dados = ler_arquivo(caminho_arquivo);
-    imprimir_metricas(dados);
+    try {
+        criar_diretorio("arquivos");
+        criar_diretorio("G21");
+        
+        vector<string> arquivos = obter_arquivos_dat();
+        
+        if (arquivos.empty()) {
+            cout << "Nenhum arquivo .dat encontrado no diretorio 'arquivos'!\n";
+            cout << "Crie o diretorio 'arquivos' e adicione os arquivos de entrada.\n";
+            return 1;
+        }
+        
+        cout << "Arquivos disponiveis:\n";
+        for (size_t i = 0; i < arquivos.size(); ++i) {
+            cout << " [" << i + 1 << "] " << arquivos[i] << '\n';
+        }
+        
+        int escolha;
+        cout << "\nDigite o numero do arquivo para processar: ";
+        cin >> escolha;
+        
+        if (escolha < 1 || escolha > static_cast<int>(arquivos.size())) {
+            cout << "Escolha invalida!\n";
+            return 1;
+        }
+        
+        string arquivo_selecionado = arquivos[escolha - 1];
+        cout << "\nProcessando arquivo: " << arquivo_selecionado << endl;
+        
+        DadosArquivo dados = ler_arquivo(arquivo_selecionado);
+        cout << "Arquivo processado com sucesso!\n";
+        
+        vector<tuple<int, int, float>> todos_arcos;
+        for (const auto& e : dados.arestas) {
+            todos_arcos.push_back(make_tuple(e[0], e[1], e[2]));
+            todos_arcos.push_back(make_tuple(e[1], e[0], e[2]));
+        }
+        for (const auto& a : dados.arcos) {
+            todos_arcos.push_back(make_tuple(a[0], a[1], a[2]));
+        }
+
+        auto resultado = floyd_warshall(dados.num_nos, todos_arcos);
+        cout << "Matriz de distancias calculada!\n";
+        
+        vector<Servico> servicos = criar_servicos(dados.nos, dados.arestas, dados.arcos, resultado.first, dados.deposito);
+        cout << "Servicos criados: " << servicos.size() << endl;
+        
+        vector<vector<Servico>> rotas = construir_rotas(servicos, dados.capacidade, dados.deposito, resultado.first);
+        cout << "Rotas construidas: " << rotas.size() << endl;
+        
+        salvar_solucao(arquivo_selecionado, rotas, resultado.first, dados.deposito);
+        cout << "\n=== Processamento concluido com sucesso! ===\n";
+        cout << "Arquivo de saida gerado em: G21/sol-" << arquivo_selecionado << endl;
+    }
+    catch (const exception& e) {
+        cerr << "\nErro: " << e.what() << endl;
+        return 1;
+    }
     
     return 0;
 }
